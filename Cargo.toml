@@ -1,0 +1,13 @@
+[package]
+name = "io-uring-x1"
+version = "0.1.0"
+edition = "2024"
+
+# The workspace: `io-uring-x1` itself and `xtask`, the project's own
+# tasks (`cargo xtask bump next`), both built, tested, and linted by
+# default.
+[workspace]
+members = [".", "xtask"]
+default-members = [".", "xtask"]
+
+[dependencies]
