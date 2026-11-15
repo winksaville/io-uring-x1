@@ -265,6 +265,18 @@ optional: an SQ depth, and a CQ depth by `IORING_SETUP_CQSIZE`, on `Ring` and as
 Turn off `run`'s own help flag so `-h` and `--help` go to the binary, `run`'s help moving to `cx help
 run`, and completion treating them as the binary's.
 
+* `run` has clap's `disable_help_flag`, so `-h` and `--help` are ordinary arguments and, with
+  `allow_hyphen_values`, the binary's: `cx run -h` and `cx run --bin io-uring-x1 -h` print the app's
+  help, as `cx run -- -h` did.
+  - `run`'s own help is clap's `help` task, `cx help run`, and its long help says so.
+  - `--bin` is `run`'s one flag, and `--` is needed only before a `--bin` meant for the binary.
+  - A difference from cargo, accepted: `cargo run -h` is cargo's help, and `cx run -h` the app's,
+    since `run` is a wrapper whose only option is `--bin`.
+* `binary_args_started` no longer counts `-h` and `--help` as `run`'s, so `cx run <tab>` offers
+  `--bin` alone and `cx run -h <tab>` nothing.
+* The parse test pins `-h` and `--help` reaching the binary, with and without `--bin`, and `help
+  run` showing `--bin <NAME>`.
+
 ##### feat: carry NOPs over zc-ring-x1 spsc queues
 
 Two spsc queues in front of the ring: a request queue whose entries become SQEs, and a completion

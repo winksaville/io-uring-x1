@@ -86,9 +86,10 @@ pub fn the_one(binaries: &[String]) -> Result<&str, String> {
 /// request carries.
 ///
 /// `run` takes its arguments as `cargo run` does: the first word after
-/// `run` that is not one of `run`'s own, `--bin NAME` (or `--bin=NAME`),
-/// `-h`, or `--help`, begins the binary's, as does `--`. Once they have
-/// begun, `run`'s flags are no longer `run`'s to complete. clap's engine
+/// `run` that is not its one flag, `--bin NAME` (or `--bin=NAME`), begins
+/// the binary's, as does `--`, `-h` and `--help` included, since they
+/// are the binary's. Once they have begun, `--bin` is no longer `run`'s
+/// to complete. clap's engine
 /// does not apply `trailing_var_arg` when completing, so the caller asks
 /// this first. A line with no `run` in it never has.
 pub fn binary_args_started(words: &[String], index: usize) -> bool {
@@ -102,7 +103,6 @@ pub fn binary_args_started(words: &[String], index: usize) -> bool {
             "--bin" => {
                 rest.next();
             }
-            "-h" | "--help" => {}
             w if w.starts_with("--bin=") => {}
             _ => return true,
         }
@@ -126,7 +126,8 @@ mod tests {
         assert!(!started("cx run --bin "));
         assert!(!started("cx run --bin b "));
         assert!(!started("cx run --bin=b "));
-        assert!(!started("cx run -h "));
+        assert!(started("cx run -h "), "-h is the binary's");
+        assert!(started("cx run --bin b --help "), "--help is the binary's");
         assert!(started("cx run foo "));
         assert!(started("cx run --bin b foo "));
         assert!(started("cx run -x "));

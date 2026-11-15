@@ -77,18 +77,20 @@ enum Task {
     /// Run the workspace's one binary, passing ARGS through
     #[command(long_about = "\
         Run the workspace's binary by `cargo run --bin`, ARGS passed through\n\
-        as `cargo run` passes them: the first argument that is not run's own\n\
-        and everything after it, flags included. `--` is needed only before\n\
-        an argument that is one of run's own, --bin, -h, or --help. The\n\
-        binaries are the workspace members' bin targets, as `cargo metadata`\n\
-        reports them, xtask's own left out, and with exactly one there is\n\
-        nothing to ask. With none or several the run is refused, the\n\
+        as `cargo run` passes them: the first argument that is not --bin and\n\
+        everything after it, flags included. -h and --help are the binary's,\n\
+        so `cargo xtask run -h` shows its help, and this help is `cargo xtask\n\
+        help run`. `--` is needed only before a --bin meant for the binary.\n\
+        The binaries are the workspace members' bin targets, as `cargo\n\
+        metadata` reports them, xtask's own left out, and with exactly one\n\
+        there is nothing to ask. With none or several the run is refused, the\n\
         binaries listed, and --bin names the one to run.")]
+    #[command(disable_help_flag = true)]
     Run {
         /// The binary to run, when the workspace has more than one
         #[arg(long, value_name = "NAME", add = ArgValueCandidates::new(bin_candidates))]
         bin: Option<String>,
-        /// The binary's own arguments, `--` first only when one is run's own
+        /// The binary's own arguments, -h and --help among them
         #[arg(
             trailing_var_arg = true,
             allow_hyphen_values = true,
@@ -258,8 +260,9 @@ mod tests {
             parse(&["xtask", "run", "--bin", "b", "--", "-x", "y"]),
             Ok(Task::Run { bin: Some(b), args }) if b == "b" && args == ["-x", "y"]
         ));
-        // As `cargo run` takes them: from the first argument not run's
-        // own, flags included, `--` only before one of run's own.
+        // As `cargo run` takes them: from the first argument not --bin,
+        // flags included, -h and --help the binary's, and `--` needed
+        // only before a --bin meant for the binary.
         let args = |argv: &[&str]| match parse(argv) {
             Ok(Task::Run { bin, args }) => Ok((bin, args)),
             other => Err(format!("{other:?}")),
@@ -289,7 +292,15 @@ mod tests {
             args(&["xtask", "run", "--", "--help"]),
             Ok((None, vec!["--help".into()]))
         );
-        assert!(args(&["xtask", "run", "--help"]).is_err(), "run's own help");
+        assert_eq!(args(&["xtask", "run", "-h"]), Ok((None, vec!["-h".into()])));
+        assert_eq!(
+            args(&["xtask", "run", "--bin", "b", "--help"]),
+            Ok((some("b"), vec!["--help".into()]))
+        );
+        // run's own help is the help task's.
+        let help = parse(&["xtask", "help", "run"]).unwrap_err();
+        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+        assert!(help.to_string().contains("--bin <NAME>"), "{help}");
         assert!(parse(&["xtask", "bump"]).is_err(), "bump needs its word");
         assert!(parse(&["xtask"]).is_err(), "a task is required");
     }
