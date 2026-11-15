@@ -162,6 +162,19 @@ the CQE read and the CQ head advanced, each NOP's `user_data` coming back with `
 `cargo xtask run [-- ARGS]` finds the workspace's binaries by `cargo metadata`, xtask's left out,
 and runs the one there is, refusing with the list when there is not exactly one.
 
+* The binaries are read from `cargo metadata --no-deps`, whose packages are the workspace's members,
+  each one's targets of kind `bin`, the package named as xtask's own (`CARGO_PKG_NAME`) left out,
+  so the libraries and the task runner never count.
+  - `serde_json` reads the JSON, xtask's one new dependency.
+  - Exactly one binary runs by `cargo run --bin <it> -- ARGS`, with cargo's own build output, so it
+    reads as `cargo run` does. None or several are refused, the list given, and `--bin NAME` picks
+    one, cargo then answering a wrong name with its own list.
+* ARGS come after `--` (clap's `last`), so a flag of the binary's is never taken for xtask's.
+* `run` returns nothing to print, and `main` now prints a task's text only when there is some, so
+  the binary's output is the run's last line.
+* A test feeds `binaries` a metadata sample: the one binary found with the lib and xtask left out,
+  two listed when nothing is skipped, none from empty JSON.
+
 ##### refactor: make xtask a library
 
 The tasks live in `xtask/src/main.rs`, so another project cannot reuse them. Move them into
@@ -194,6 +207,18 @@ Entries are in priority order, the first highest, and reprioritizing is moving a
 `[build]`, `[install]`, and `[profile.*]` in `.vc-config.md` are the project's knowledge in vc-x1's
 config, as `[validate]` was before `cargo xtask validate`. Move them into xtask, `cargo xtask install
 --profile dev` for one, with a `custom.md` override where the agent-files name `vc-x1 install`.
+
+### fix: a cycle commit marks no rung current
+
+`vc-x1 cycle --commit` writes each rung `(done)` and the next `(current)` into the commit's
+`zTOC.md`, so commit N records a claim about rung N+1, work not yet begun. It goes stale when the
+plan changes, as it did in the `feat: issue IORING_OP_NOP via io_uring primitives` cycle, where the
+ring rung's commit named the NOP rung current and two rungs were then inserted ahead of it. The
+marker is also redundant, `cycle --status` computing the next rung from the branch, and a rung's own
+diff never touches the ladder. Proposed: a commit marks its own rung done and nothing current.
+It is vc-x1's code and the agent-files' wording (`AGENTS.md` per-rung flow step 7 and Cycle-record,
+`agent-data/notes.md` zTOC format), so it goes to vc-x1 as a message and an agent-files proposal
+when Wink says so.
 
 ### feat: share the xtask library across repos
 

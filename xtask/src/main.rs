@@ -11,6 +11,10 @@
 //!   `cargo fmt --check`, clippy with warnings denied, and the tests,
 //!   or with `--fast` the tests alone. Formatting is `cargo fmt`'s, run
 //!   while working, never validation's.
+//! - `cargo xtask run [--bin NAME] [-- ARGS]` runs the workspace's one
+//!   binary, xtask's own left out, found by `cargo metadata`, so
+//!   `cargo run`'s question of which binary is answered when there is
+//!   only one to answer it with.
 //! - `cargo xtask completions [NAME...]` prints a bash function that
 //!   completes `cargo xtask` and each NAME, a shell alias for it, by
 //!   asking the xtask of the repo the shell is in.
@@ -68,6 +72,22 @@ enum Task {
         /// The tests alone, without the format check and clippy
         #[arg(long)]
         fast: bool,
+    },
+
+    /// Run the workspace's one binary, passing ARGS through
+    #[command(long_about = "\
+        Run the workspace's binary by `cargo run --bin`, ARGS passed through\n\
+        after `--`. The binaries are the workspace members' bin targets, as\n\
+        `cargo metadata` reports them, xtask's own left out, and with exactly\n\
+        one there is nothing to ask. With none or several the run is\n\
+        refused, the binaries listed, and --bin names the one to run.")]
+    Run {
+        /// The binary to run, when the workspace has more than one
+        #[arg(long, value_name = "NAME")]
+        bin: Option<String>,
+        /// The binary's own arguments, after `--`
+        #[arg(last = true, value_name = "ARGS")]
+        args: Vec<String>,
     },
 
     /// Print a bash function that completes `cargo xtask` and its aliases
@@ -306,6 +326,75 @@ fn validate(root: &Path, fast: bool) -> Result<String, String> {
     Ok(format!("validate: {n} command(s) passed ({which})"))
 }
 
+/// The bin targets of the workspace's packages in `cargo metadata
+/// --no-deps` JSON, which lists the members alone, every package named
+/// `skip` left out.
+fn binaries(metadata: &serde_json::Value, skip: &str) -> Vec<String> {
+    let empty = Vec::new();
+    let packages = metadata["packages"].as_array().unwrap_or(&empty); // OK: no packages, no binaries
+    packages
+        .iter()
+        .filter(|p| p["name"] != skip)
+        .flat_map(|p| p["targets"].as_array().unwrap_or(&empty)) // OK: no targets, no binaries
+        .filter(|t| {
+            t["kind"]
+                .as_array()
+                .is_some_and(|k| k.iter().any(|k| k == "bin"))
+        })
+        .filter_map(|t| t["name"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// The one binary there is to run, or why there is not one.
+fn the_one(binaries: &[String]) -> Result<&str, String> {
+    match binaries {
+        [one] => Ok(one),
+        [] => Err("run: the workspace has no binary to run".to_string()),
+        several => Err(format!(
+            "run: the workspace has {} binaries, name one with --bin: {}",
+            several.len(),
+            several.join(", ")
+        )),
+    }
+}
+
+/// Run `bin`, or the workspace's one binary, by `cargo run`, `args`
+/// passed through.
+fn run_bin(root: &Path, bin: Option<&str>, args: &[String]) -> Result<String, String> {
+    let found;
+    let bin = match bin {
+        Some(bin) => bin,
+        None => {
+            let out = std::process::Command::new(cargo())
+                .args(["metadata", "--no-deps", "--format-version", "1"])
+                .current_dir(root)
+                .output()
+                .map_err(|e| format!("run: cargo metadata did not run: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "run: cargo metadata failed: {}\n{}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                ));
+            }
+            let metadata: serde_json::Value = serde_json::from_slice(&out.stdout)
+                .map_err(|e| format!("run: cargo metadata's JSON does not parse: {e}"))?;
+            found = binaries(&metadata, env!("CARGO_PKG_NAME"));
+            the_one(&found)?
+        }
+    };
+    let status = std::process::Command::new(cargo())
+        .args(["run", "--bin", bin, "--"])
+        .args(args)
+        .current_dir(root)
+        .status()
+        .map_err(|e| format!("run: cargo run did not run: {e}"))?;
+    match status.success() {
+        true => Ok(String::new()),
+        false => Err(format!("run: {bin} failed: {status}")),
+    }
+}
+
 /// Refresh `Cargo.lock` for the workspace's own packages, offline, so
 /// a `--locked` build finds the version the manifest now has.
 fn refresh_lock(root: &Path) -> Result<(), String> {
@@ -346,6 +435,7 @@ fn run(task: &Task) -> Result<String, String> {
             Ok(format!("{current} -> {new}, Cargo.lock refreshed"))
         }
         Task::Validate { fast } => validate(&root(), *fast),
+        Task::Run { bin, args } => run_bin(&root(), bin.as_deref(), args),
         Task::Completions { names } => Ok(completion_script(names).trim_end().to_string()),
     }
 }
@@ -355,7 +445,10 @@ fn main() -> ExitCode {
     CompleteEnv::with_factory(Cli::command).complete();
     match run(&Cli::parse().task) {
         Ok(said) => {
-            println!("{said}");
+            // `run` says nothing of its own, the binary's output being all.
+            if !said.is_empty() {
+                println!("{said}");
+            }
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -427,7 +520,7 @@ rand = \"0.10\"
     #[test]
     fn the_tasks_and_bumps_words_complete() {
         let tasks = completes(&["cx", ""]);
-        for task in ["version", "bump", "validate", "completions"] {
+        for task in ["version", "bump", "validate", "run", "completions"] {
             assert!(tasks.iter().any(|t| t == task), "{task}: {tasks:?}");
         }
         assert_eq!(completes(&["cargo-xtask", "v"]), ["version", "validate"]);
@@ -454,6 +547,18 @@ rand = \"0.10\"
             parse(&["xtask", "validate", "--fast"]),
             Ok(Task::Validate { fast: true })
         ));
+        assert!(matches!(
+            parse(&["xtask", "run"]),
+            Ok(Task::Run { bin: None, args }) if args.is_empty()
+        ));
+        assert!(matches!(
+            parse(&["xtask", "run", "--bin", "b", "--", "-x", "y"]),
+            Ok(Task::Run { bin: Some(b), args }) if b == "b" && args == ["-x", "y"]
+        ));
+        assert!(
+            parse(&["xtask", "run", "-x"]).is_err(),
+            "ARGS come after --"
+        );
         assert!(parse(&["xtask", "bump"]).is_err(), "bump needs its word");
         assert!(parse(&["xtask"]).is_err(), "a task is required");
     }
@@ -473,6 +578,34 @@ rand = \"0.10\"
         assert!(full.iter().any(|c| c[0] == "test"));
         let fast = validate_commands(true);
         assert_eq!(fast, [["test", "--workspace", "--lib", "--bins"]]);
+    }
+
+    /// The binaries are the members' bin targets, the skipped package's
+    /// and every lib left out, and one of them is the one to run.
+    #[test]
+    fn run_finds_the_one_binary() {
+        let metadata = serde_json::json!({"packages": [
+            {"name": "io-uring-x1", "targets": [
+                {"name": "io_uring_x1", "kind": ["lib"]},
+                {"name": "io-uring-x1", "kind": ["bin"]},
+            ]},
+            {"name": "xtask", "targets": [{"name": "xtask", "kind": ["bin"]}]},
+        ]});
+        let found = binaries(&metadata, "xtask");
+        assert_eq!(found, ["io-uring-x1"]);
+        assert_eq!(the_one(&found), Ok("io-uring-x1"));
+        let both = binaries(&metadata, "none");
+        assert_eq!(both, ["io-uring-x1", "xtask"]);
+        let e = the_one(&both).unwrap_err();
+        assert!(
+            e.contains("2 binaries") && e.contains("io-uring-x1, xtask"),
+            "{e}"
+        );
+        assert!(the_one(&[]).unwrap_err().contains("no binary"));
+        assert_eq!(
+            binaries(&serde_json::json!({}), "xtask"),
+            Vec::<String>::new()
+        );
     }
 
     /// The function asks `cargo xtask`, not a binary by name, and is

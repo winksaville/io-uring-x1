@@ -9,8 +9,8 @@ The workspace's index, in [zTOC format](agent-data/notes.md#ztoc-format).
 - 2 (done) [feat: validate by cargo xtask](TODO.md#feat-validate-by-cargo-xtask)
 - 3 (done) [fix: restore clap's completion script layout](TODO.md#fix-restore-claps-completion-script-layout)
 - 4 (done) [feat: submit IORING_OP_NOP and reap its CQE](TODO.md#feat-submit-ioring_op_nop-and-reap-its-cqe)
-- 5 (current) [feat: run the one binary by cargo xtask](TODO.md#feat-run-the-one-binary-by-cargo-xtask)
-- [refactor: make xtask a library](TODO.md#refactor-make-xtask-a-library)
+- 5 (done) [feat: run the one binary by cargo xtask](TODO.md#feat-run-the-one-binary-by-cargo-xtask)
+- 6 (current) [refactor: make xtask a library](TODO.md#refactor-make-xtask-a-library)
 - [feat: carry NOPs over zc-ring-x1 spsc queues](TODO.md#feat-carry-nops-over-zc-ring-x1-spsc-queues)
 - [feat: issue IORING_OP_NOP via io_uring primitives closing](TODO.md#feat-issue-ioring_op_nop-via-io_uring-primitives-closing)
 
