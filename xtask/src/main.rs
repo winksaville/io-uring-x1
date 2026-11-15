@@ -114,7 +114,7 @@ fn completion_script(names: &[String]) -> String {
         r#"# Completion for `cargo xtask`, printed by `cargo xtask completions`.
 # It asks the xtask of the repo the shell is in, on each tab.
 _cargo_xtask_complete() {{
-    local IFS=$''
+    local IFS=$'\013'
     local _CLAP_COMPLETE_INDEX=${{COMP_CWORD}}
     local _CLAP_COMPLETE_COMP_TYPE=${{COMP_TYPE}}
     if compopt +o nospace 2> /dev/null; then
@@ -126,7 +126,14 @@ _cargo_xtask_complete() {{
     if [[ "${{BASH_VERSINFO[0]}}" -ge 4 ]]; then
         words[COMP_CWORD]="$2"
     fi
-    COMPREPLY=( $(         _CLAP_IFS="$IFS"         _CLAP_COMPLETE_INDEX="$_CLAP_COMPLETE_INDEX"         _CLAP_COMPLETE_COMP_TYPE="$_CLAP_COMPLETE_COMP_TYPE"         _CLAP_COMPLETE_SPACE="$_CLAP_COMPLETE_SPACE"         COMPLETE="bash"         cargo xtask -- "${{words[@]}}" 2> /dev/null     ) )
+    COMPREPLY=( $( \
+        _CLAP_IFS="$IFS" \
+        _CLAP_COMPLETE_INDEX="$_CLAP_COMPLETE_INDEX" \
+        _CLAP_COMPLETE_COMP_TYPE="$_CLAP_COMPLETE_COMP_TYPE" \
+        _CLAP_COMPLETE_SPACE="$_CLAP_COMPLETE_SPACE" \
+        COMPLETE="bash" \
+        cargo xtask -- "${{words[@]}}" 2> /dev/null \
+    ) )
     if [[ $? != 0 ]]; then
         unset COMPREPLY
     elif [[ $_CLAP_COMPLETE_SPACE == false ]] && [[ "${{COMPREPLY-}}" =~ [=/:]$ ]]; then
@@ -488,5 +495,23 @@ rand = \"0.10\"
             "{script}"
         );
         assert!(completion_script(&[]).ends_with("_cargo_xtask_complete cargo-xtask\nfi\n"));
+    }
+
+    /// The script is clap's text as written: the IFS escape is the four
+    /// characters `\013` for bash to read, never the vertical tab itself,
+    /// and the completer's environment is one assignment per line joined
+    /// by `\` continuations, no run of spaces where a join was lost.
+    #[test]
+    fn the_completion_script_is_claps_text() {
+        let script = completion_script(&[]);
+        assert!(script.contains("local IFS=$'\\013'\n"), "{script}");
+        assert!(!script.contains('\x0b'), "a raw vertical tab: {script}");
+        assert!(
+            script.contains("COMPREPLY=( $( \\\n        _CLAP_IFS=\"$IFS\" \\\n"),
+            "{script}"
+        );
+        assert!(script.contains("2> /dev/null \\\n    ) )\n"), "{script}");
+        let joined = script.lines().find(|l| l.trim_start().contains("   "));
+        assert_eq!(joined, None, "a lost join leaves a run of spaces mid-line");
     }
 }

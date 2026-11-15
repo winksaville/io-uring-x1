@@ -121,6 +121,18 @@ The completion script's `COMPREPLY` line lost clap's `\` continuations, leaving 
 its `IFS` holds a raw vertical tab where clap writes `$'\013'`, both an escape-processing accident
 in the copy from vc-x1. Restore clap's text in the raw string, and test for the escape as written.
 
+* The damage is what a non-raw string makes of clap's text: `\` and its newline dropped with the
+  next line's indent kept, and `\013` turned into the byte it names.
+  - It ran the same, bash ignoring the spaces and reading the byte inside `$''` as itself, and the
+    risk was the invisible byte, which an editor or formatter could strip and silently change the
+    word splitting of every completion.
+* The script is clap's again: `local IFS=$'\013'` as text, and the completer's environment one
+  assignment per line, joined by `\`, in the raw string where a backslash stays itself.
+* A test pins it: the escape as its four characters, no raw vertical tab, the continuations in
+  place, and no run of spaces mid-line. The printed script passes `bash -n` and completes `cx v`
+  to `version` and `validate`.
+* vc-x1's own xtask carries the same copy, `xtask/src/main.rs`, told to it only if Wink says so.
+
 ##### feat: submit IORING_OP_NOP and reap its CQE
 
 A NOP round trip: an SQE written and published by the SQ tail, `io_uring_enter` to submit and wait,

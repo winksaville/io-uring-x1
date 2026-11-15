@@ -1,6 +1,6 @@
 [package]
 name = "io-uring-x1"
-version = "0.2.0-2"
+version = "0.2.0-3"
 edition = "2024"
 
 # The workspace: `io-uring-x1` itself and `xtask`, the project's own
