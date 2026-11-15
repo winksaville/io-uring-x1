@@ -213,6 +213,34 @@ own passed in, not built in.
 plain argument and everything after it. Make `run` take them the same way, `--` needed only when
 the binary's first argument is a flag or one of `run`'s own.
 
+* `args` is clap's `trailing_var_arg` with `allow_hyphen_values`, in place of `last`: the first
+  argument that is not `run`'s own starts the binary's, and everything after it is the binary's,
+  flags and a later `--bin` included, as cargo does.
+  - `--` is needed only before one of `run`'s own, `--bin`, `-h`, or `--help`: `cx run -- --help`
+    hands `--help` to the binary, `cx run --help` shows `run`'s.
+  - The cost: an unknown flag first, a mistyped `--bni` say, reaches the binary rather than being
+    refused, an acceptable trade for a run wrapper.
+* The parse test pins each case, and cargo's own `Running` line shows the binary given `foo -x --bin
+  b` and `--help`.
+* Completion follows the same split.
+  - `cx run --bin <tab>` offers the workspace's binaries, read by `cargo metadata` on each tab,
+    xtask's own left out, by `xtask-lib`'s `metadata`, now public.
+  - Once the binary's arguments have begun, `cx run foo <tab>` and `cx run -- <tab>` offer nothing,
+    where they offered `--bin` and `--help`, which would have reached the binary.
+  - clap's engine ignores `trailing_var_arg` when completing, offering a command's options beside
+    any positional whose minimum is met, always for a `Vec`, and has no knob for it. So `main`
+    answers such a request with nothing before clap is asked, `xtask-lib`'s
+    `binary_args_started` deciding it from the request's words and index.
+  - Completing the binary's own arguments waits for it to have a CLI, `io-uring-x1` having none.
+* The earlier rung, `feat: run the one binary by cargo xtask`, said ARGS come after `--`; that
+  subsection stays as it was, this rung superseding it.
+
+##### feat: choose the ring's queue depths
+
+The ring's depths are fixed, 8 SQEs and the kernel's default of twice as many CQEs. Make both
+optional: an SQ depth, and a CQ depth by `IORING_SETUP_CQSIZE`, on `Ring` and as the binary's
+`--sq-entries` and `--cq-entries`, its first CLI, so `cx run -- ...` has something to pass.
+
 ##### feat: carry NOPs over zc-ring-x1 spsc queues
 
 Two spsc queues in front of the ring: a request queue whose entries become SQEs, and a completion

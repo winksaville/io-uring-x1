@@ -32,7 +32,7 @@ pub fn run(root: &Path, bin: Option<&str>, args: &[String], skip: &str) -> Resul
 }
 
 /// The workspace's `cargo metadata --no-deps`, parsed.
-fn metadata(root: &Path) -> Result<serde_json::Value, String> {
+pub fn metadata(root: &Path) -> Result<serde_json::Value, String> {
     let out = Command::new(crate::cargo())
         .args(["metadata", "--no-deps", "--format-version", "1"])
         .current_dir(root)
@@ -81,9 +81,69 @@ pub fn the_one(binaries: &[String]) -> Result<&str, String> {
     }
 }
 
+/// Whether the binary's own arguments have begun before `words[index]`,
+/// the word being completed, `words` being the command line a completion
+/// request carries.
+///
+/// `run` takes its arguments as `cargo run` does: the first word after
+/// `run` that is not one of `run`'s own, `--bin NAME` (or `--bin=NAME`),
+/// `-h`, or `--help`, begins the binary's, as does `--`. Once they have
+/// begun, `run`'s flags are no longer `run`'s to complete. clap's engine
+/// does not apply `trailing_var_arg` when completing, so the caller asks
+/// this first. A line with no `run` in it never has.
+pub fn binary_args_started(words: &[String], index: usize) -> bool {
+    let before = &words[..index.min(words.len())];
+    let Some(at) = before.iter().position(|w| w == "run") else {
+        return false;
+    };
+    let mut rest = before[at + 1..].iter();
+    while let Some(w) = rest.next() {
+        match w.as_str() {
+            "--bin" => {
+                rest.next();
+            }
+            "-h" | "--help" => {}
+            w if w.starts_with("--bin=") => {}
+            _ => return true,
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The binary's arguments begin at the first word not `run`'s own,
+    /// or at `--`, and `--bin`'s value is `run`'s.
+    #[test]
+    fn the_binarys_arguments_begin_as_cargo_run_has_them() {
+        let started = |line: &str| {
+            let words: Vec<String> = line.split(' ').map(str::to_string).collect();
+            binary_args_started(&words, words.len() - 1)
+        };
+        assert!(!started("cx run "));
+        assert!(!started("cx run --bin "));
+        assert!(!started("cx run --bin b "));
+        assert!(!started("cx run --bin=b "));
+        assert!(!started("cx run -h "));
+        assert!(started("cx run foo "));
+        assert!(started("cx run --bin b foo "));
+        assert!(started("cx run -x "));
+        assert!(started("cx run -- "));
+        assert!(started("cargo xtask run foo "), "cargo's hand-off line");
+        assert!(!started("cx bump "), "not a run");
+        assert!(!started("cx "));
+        let words: Vec<String> = ["cx", "run", "foo"].map(String::from).to_vec();
+        assert!(
+            !binary_args_started(&words, 2),
+            "the word being completed is not yet begun"
+        );
+        assert!(
+            binary_args_started(&words, 9),
+            "an index past the end reads every word"
+        );
+    }
 
     /// The binaries are the members' bin targets, the skipped package's
     /// and every lib left out, and one of them is the one to run.

@@ -77,16 +77,23 @@ enum Task {
     /// Run the workspace's one binary, passing ARGS through
     #[command(long_about = "\
         Run the workspace's binary by `cargo run --bin`, ARGS passed through\n\
-        after `--`. The binaries are the workspace members' bin targets, as\n\
-        `cargo metadata` reports them, xtask's own left out, and with exactly\n\
-        one there is nothing to ask. With none or several the run is\n\
-        refused, the binaries listed, and --bin names the one to run.")]
+        as `cargo run` passes them: the first argument that is not run's own\n\
+        and everything after it, flags included. `--` is needed only before\n\
+        an argument that is one of run's own, --bin, -h, or --help. The\n\
+        binaries are the workspace members' bin targets, as `cargo metadata`\n\
+        reports them, xtask's own left out, and with exactly one there is\n\
+        nothing to ask. With none or several the run is refused, the\n\
+        binaries listed, and --bin names the one to run.")]
     Run {
         /// The binary to run, when the workspace has more than one
-        #[arg(long, value_name = "NAME")]
+        #[arg(long, value_name = "NAME", add = ArgValueCandidates::new(bin_candidates))]
         bin: Option<String>,
-        /// The binary's own arguments, after `--`
-        #[arg(last = true, value_name = "ARGS")]
+        /// The binary's own arguments, `--` first only when one is run's own
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARGS"
+        )]
         args: Vec<String>,
     },
 
@@ -119,6 +126,42 @@ fn bump_candidates() -> Vec<CompletionCandidate> {
     ]
 }
 
+/// What `run --bin` completes to: the workspace's binaries, this
+/// package's own left out, read from `cargo metadata` on each tab. A
+/// workspace that cannot be read completes nothing.
+fn bin_candidates() -> Vec<CompletionCandidate> {
+    let binaries = workspace_root()
+        .and_then(|root| run::metadata(&root))
+        .map(|m| run::binaries(&m, env!("CARGO_PKG_NAME")));
+    match binaries {
+        Ok(binaries) => binaries.into_iter().map(CompletionCandidate::new).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Answer a completion request with nothing when it is for the binary's
+/// own arguments, `run`'s having ended, before clap's engine, which would
+/// offer `run`'s flags there, is asked.
+///
+/// The request is this binary run with `COMPLETE` set, the command
+/// line's words after a `--`, and `_CLAP_COMPLETE_INDEX` the word being
+/// completed.
+fn complete_nothing_past_runs_own() {
+    if std::env::var_os("COMPLETE").is_none() {
+        return;
+    }
+    let Some(index) = std::env::var("_CLAP_COMPLETE_INDEX")
+        .ok()
+        .and_then(|i| i.parse::<usize>().ok())
+    else {
+        return;
+    };
+    let words: Vec<String> = std::env::args().skip_while(|a| a != "--").skip(1).collect();
+    if run::binary_args_started(&words, index) {
+        std::process::exit(0);
+    }
+}
+
 /// Run a task, returning what it prints.
 fn dispatch(task: &Task) -> Result<String, String> {
     match task {
@@ -139,7 +182,8 @@ fn dispatch(task: &Task) -> Result<String, String> {
 }
 
 fn main() -> ExitCode {
-    // With `COMPLETE` set this answers a completion request and exits.
+    // With `COMPLETE` set these answer a completion request and exit.
+    complete_nothing_past_runs_own();
     CompleteEnv::with_factory(Cli::command).complete();
     match dispatch(&Cli::parse().task) {
         Ok(said) => {
@@ -184,6 +228,8 @@ mod tests {
         assert_eq!(completes(&["cargo-xtask", "ve"]), ["version"]);
         assert_eq!(completes(&["cx", "bump", ""])[..2], ["next", "bare"]);
         assert_eq!(completes(&["cx", "bump", "n"]), ["next"]);
+        // `run --bin` offers this workspace's binary, xtask's left out.
+        assert_eq!(completes(&["cx", "run", "--bin", ""]), ["io-uring-x1"]);
     }
 
     /// The arguments parse as the hand-written ones did, and `-h` is
@@ -212,10 +258,38 @@ mod tests {
             parse(&["xtask", "run", "--bin", "b", "--", "-x", "y"]),
             Ok(Task::Run { bin: Some(b), args }) if b == "b" && args == ["-x", "y"]
         ));
-        assert!(
-            parse(&["xtask", "run", "-x"]).is_err(),
-            "ARGS come after --"
+        // As `cargo run` takes them: from the first argument not run's
+        // own, flags included, `--` only before one of run's own.
+        let args = |argv: &[&str]| match parse(argv) {
+            Ok(Task::Run { bin, args }) => Ok((bin, args)),
+            other => Err(format!("{other:?}")),
+        };
+        let some = |b: &str| Some(b.to_string());
+        assert_eq!(
+            args(&["xtask", "run", "foo", "-x"]),
+            Ok((None, vec!["foo".into(), "-x".into()]))
         );
+        assert_eq!(
+            args(&["xtask", "run", "-x", "foo"]),
+            Ok((None, vec!["-x".into(), "foo".into()]))
+        );
+        assert_eq!(
+            args(&["xtask", "run", "foo", "--bin", "b"]),
+            Ok((None, vec!["foo".into(), "--bin".into(), "b".into()]))
+        );
+        assert_eq!(
+            args(&["xtask", "run", "--bin", "b", "foo"]),
+            Ok((some("b"), vec!["foo".into()]))
+        );
+        assert_eq!(
+            args(&["xtask", "run", "--", "--bin"]),
+            Ok((None, vec!["--bin".into()]))
+        );
+        assert_eq!(
+            args(&["xtask", "run", "--", "--help"]),
+            Ok((None, vec!["--help".into()]))
+        );
+        assert!(args(&["xtask", "run", "--help"]).is_err(), "run's own help");
         assert!(parse(&["xtask", "bump"]).is_err(), "bump needs its word");
         assert!(parse(&["xtask"]).is_err(), "a task is required");
     }
