@@ -4,7 +4,11 @@ The workspace's index, in [zTOC format](agent-data/notes.md#ztoc-format).
 
 ## Ladder
 
-- 0 (done) feat: configure repo for vc
+- 0 (done) [feat: issue IORING_OP_NOP via io_uring primitives opening](TODO.md#feat-issue-ioring_op_nop-via-io_uring-primitives-opening)
+- 1 (current) [feat: set up an io_uring with rustix](TODO.md#feat-set-up-an-io_uring-with-rustix)
+- [feat: submit IORING_OP_NOP and reap its CQE](TODO.md#feat-submit-ioring_op_nop-and-reap-its-cqe)
+- [feat: carry NOPs over zc-ring-x1 spsc queues](TODO.md#feat-carry-nops-over-zc-ring-x1-spsc-queues)
+- [feat: issue IORING_OP_NOP via io_uring primitives closing](TODO.md#feat-issue-ioring_op_nop-via-io_uring-primitives-closing)
 
 ## The TOC
 
