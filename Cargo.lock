@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "io-uring-x1"
-version = "0.2.0-1"
+version = "0.2.0-2"
 dependencies = [
  "rustix",
 ]

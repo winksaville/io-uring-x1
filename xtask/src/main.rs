@@ -7,6 +7,10 @@
 //!   close-out's version, and anything else is the version as written.
 //!   `Cargo.lock` is refreshed in the same step, since the build is
 //!   `--locked`.
+//! - `cargo xtask validate [--fast]` validates the workspace, read-only:
+//!   `cargo fmt --check`, clippy with warnings denied, and the tests,
+//!   or with `--fast` the tests alone. Formatting is `cargo fmt`'s, run
+//!   while working, never validation's.
 //! - `cargo xtask completions [NAME...]` prints a bash function that
 //!   completes `cargo xtask` and each NAME, a shell alias for it, by
 //!   asking the xtask of the repo the shell is in.
@@ -49,6 +53,21 @@ enum Task {
         /// `next`, `bare`, or the version as written
         #[arg(value_name = "next|bare|VERSION", add = ArgValueCandidates::new(bump_candidates))]
         to: String,
+    },
+
+    /// Validate the workspace, read-only: format check, clippy, tests
+    #[command(long_about = "\
+        Validate the workspace, read-only, each command in order and the\n\
+        first failure stopping the run: `cargo fmt --check`, clippy over\n\
+        every target with warnings denied, and every test. Nothing is\n\
+        written, so a validation can run at any point without changing what\n\
+        was reviewed, and formatting is `cargo fmt`'s, run while working.\n\n\
+        --fast runs the tests of the libraries and binaries alone, for while\n\
+        a review iterates.")]
+    Validate {
+        /// The tests alone, without the format check and clippy
+        #[arg(long)]
+        fast: bool,
     },
 
     /// Print a bash function that completes `cargo xtask` and its aliases
@@ -226,16 +245,64 @@ fn root() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
+/// The cargo that runs this task, `CARGO`, absent only when the binary
+/// is run by hand.
+fn cargo() -> std::ffi::OsString {
+    match std::env::var_os("CARGO") {
+        Some(cargo) => cargo,
+        None => "cargo".into(),
+    }
+}
+
+/// The cargo commands `validate` runs, in order, each one's arguments.
+///
+/// None of them writes a source file: the format is checked, never
+/// applied.
+fn validate_commands(fast: bool) -> Vec<Vec<&'static str>> {
+    let tests = vec!["test", "--workspace", "--lib", "--bins"];
+    match fast {
+        true => vec![tests],
+        false => vec![
+            vec!["fmt", "--all", "--check"],
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            vec!["test", "--workspace"],
+        ],
+    }
+}
+
+/// Run `validate`'s commands in the workspace root, each announced
+/// before it runs, its output its own, and the first failure stopping
+/// the run.
+fn validate(root: &Path, fast: bool) -> Result<String, String> {
+    let commands = validate_commands(fast);
+    let n = commands.len();
+    for (i, args) in commands.iter().enumerate() {
+        let shown = format!("[{}/{n}] cargo {}", i + 1, args.join(" "));
+        println!("validate: {shown}");
+        let status = std::process::Command::new(cargo())
+            .args(args)
+            .current_dir(root)
+            .status()
+            .map_err(|e| format!("validate: {shown} did not run: {e}"))?;
+        if !status.success() {
+            return Err(format!("validate: {shown} failed: {status}"));
+        }
+    }
+    let which = if fast { "fast" } else { "full" };
+    Ok(format!("validate: {n} command(s) passed ({which})"))
+}
+
 /// Refresh `Cargo.lock` for the workspace's own packages, offline, so
 /// a `--locked` build finds the version the manifest now has.
 fn refresh_lock(root: &Path) -> Result<(), String> {
-    // `CARGO` is the cargo that runs this task, absent only when the
-    // binary is run by hand.
-    let cargo = match std::env::var_os("CARGO") {
-        Some(cargo) => cargo,
-        None => "cargo".into(),
-    };
-    let status = std::process::Command::new(cargo)
+    let status = std::process::Command::new(cargo())
         .args(["update", "--workspace", "--offline", "--quiet"])
         .current_dir(root)
         .status()
@@ -271,6 +338,7 @@ fn run(task: &Task) -> Result<String, String> {
             refresh_lock(&root())?;
             Ok(format!("{current} -> {new}, Cargo.lock refreshed"))
         }
+        Task::Validate { fast } => validate(&root(), *fast),
         Task::Completions { names } => Ok(completion_script(names).trim_end().to_string()),
     }
 }
@@ -352,10 +420,11 @@ rand = \"0.10\"
     #[test]
     fn the_tasks_and_bumps_words_complete() {
         let tasks = completes(&["cx", ""]);
-        for task in ["version", "bump", "completions"] {
+        for task in ["version", "bump", "validate", "completions"] {
             assert!(tasks.iter().any(|t| t == task), "{task}: {tasks:?}");
         }
-        assert_eq!(completes(&["cargo-xtask", "v"]), ["version"]);
+        assert_eq!(completes(&["cargo-xtask", "v"]), ["version", "validate"]);
+        assert_eq!(completes(&["cargo-xtask", "ve"]), ["version"]);
         assert_eq!(completes(&["cx", "bump", ""])[..2], ["next", "bare"]);
         assert_eq!(completes(&["cx", "bump", "n"]), ["next"]);
     }
@@ -370,8 +439,33 @@ rand = \"0.10\"
         let help = parse(&["xtask", "-h"]).unwrap_err();
         assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
         assert!(help.to_string().contains("cargo xtask"), "{help}");
+        assert!(matches!(
+            parse(&["xtask", "validate"]),
+            Ok(Task::Validate { fast: false })
+        ));
+        assert!(matches!(
+            parse(&["xtask", "validate", "--fast"]),
+            Ok(Task::Validate { fast: true })
+        ));
         assert!(parse(&["xtask", "bump"]).is_err(), "bump needs its word");
         assert!(parse(&["xtask"]).is_err(), "a task is required");
+    }
+
+    /// Validation is read-only, the format checked and never applied,
+    /// and `--fast` is the tests alone, the libraries' included, which
+    /// `cargo test --bins` skipped.
+    #[test]
+    fn validation_checks_and_never_writes() {
+        let full = validate_commands(false);
+        assert_eq!(full[0], ["fmt", "--all", "--check"]);
+        assert!(full.iter().all(|c| c[0] != "fmt" || c.contains(&"--check")));
+        assert!(
+            full.iter()
+                .any(|c| c[0] == "clippy" && c.ends_with(&["-D", "warnings"]))
+        );
+        assert!(full.iter().any(|c| c[0] == "test"));
+        let fast = validate_commands(true);
+        assert_eq!(fast, [["test", "--workspace", "--lib", "--bins"]]);
     }
 
     /// The function asks `cargo xtask`, not a binary by name, and is

@@ -61,6 +61,9 @@ the request spsc and reads back from the completion spsc one CQE per request, ea
   reports, and refuse a kernel without it rather than carry the two-mapping path.
 - The spsc is zc-ring-x1's by path dependency, `../zc-ring-x1`, its default version, revisited in
   that rung.
+- A rung inserted after the ring's: validation moves into `cargo xtask validate`, read-only.
+  - It was asked for mid-cycle, vc-x1 keeping out of the repo's content, and the old fast run
+    skipped the new library's tests, so it lands before more ring code needs validating.
 - Version 0.2.0: a feature over 0.1.0, so the opening is `0.2.0-0` and the rungs count up from it.
 
 #### Rungs
@@ -92,6 +95,32 @@ unmapped on drop.
   - The tests check the kernel's sizes, 8 SQEs and 16 CQEs, and that 5 entries round up to 8.
 * `Drop` unmaps both mappings before the fd closes, a failed `munmap` ignored as a leak at worst.
 
+##### feat: validate by cargo xtask
+
+Validation is the project's knowledge, held natively by its own tool, not by vc-x1's config:
+`cargo xtask validate` replaces `[validate]` in `.vc-config.md`, read-only, with `cargo fmt` moved
+into the Work step, and its `--fast` runs the library's tests the old `cargo test --bins` skipped.
+
+* vc-x1 is moving to know nothing of a repo's content but its version, each project's own tooling
+  doing the rest: cargo here, cmake for a C program, an xtask where the build is sophisticated.
+  - vc-x1 reads `[validate]` only for `vc-x1 validate`, no cycle stage gating on it, so removing
+    the table removes that command's use here and nothing else.
+* `cargo xtask validate` runs `cargo fmt --all --check`, clippy over the workspace's targets with
+  warnings denied, and `cargo test --workspace`, each announced and the first failure stopping it.
+  - Read-only: validation runs before a review, before a push, and on the closed tree, and one that
+    rewrites can change a tree after its review. `cargo fmt` is the Work step's last act instead.
+  - `--fast` is `cargo test --workspace --lib --bins`, the ring's tests now included.
+  - A test pins the commands, the format checked and never applied, and the completion test now
+    expects `v` to offer `version` and `validate`, `ve` the one.
+* `custom.md` carries the override, since `AGENTS.md` names `vc-x1 validate` and `[validate]` in the
+  per-rung flow, Local ladders, and Before any push, and a change there is an agent-files proposal.
+
+##### fix: restore clap's completion script layout
+
+The completion script's `COMPREPLY` line lost clap's `\` continuations, leaving runs of spaces, and
+its `IFS` holds a raw vertical tab where clap writes `$'\013'`, both an escape-processing accident
+in the copy from vc-x1. Restore clap's text in the raw string, and test for the escape as written.
+
 ##### feat: submit IORING_OP_NOP and reap its CQE
 
 A NOP round trip: an SQE written and published by the SQ tail, `io_uring_enter` to submit and wait,
@@ -117,6 +146,12 @@ promotes what is met ([Opening](AGENTS.md#opening)).
 Entries are in priority order, the first highest, and reprioritizing is moving an entry. Each is a
 `###` heading, so a citation is a link to its anchor. Long-tail entries live in
 [todo-backlog.md](notes/todo-backlog.md). Use the [Prose form](agent-data/prose.md#prose-form).
+
+### feat: build and install by cargo xtask
+
+`[build]`, `[install]`, and `[profile.*]` in `.vc-config.md` are the project's knowledge in vc-x1's
+config, as `[validate]` was before `cargo xtask validate`. Move them into xtask, `cargo xtask install
+--profile dev` for one, with a `custom.md` override where the agent-files name `vc-x1 install`.
 
 ## Ideas
 
