@@ -282,6 +282,33 @@ run`, and completion treating them as the binary's.
 Two spsc queues in front of the ring: a request queue whose entries become SQEs, and a completion
 queue the CQEs are copied into, so a caller never touches the ring itself.
 
+* `src/driver.rs`'s `Driver` owns the io_uring, the request queue's consumer, and the completion
+  queue's producer, and `step(wait)` moves what it can: requests into SQEs, the SQ into the kernel,
+  CQEs into completions. `NopRequest { user_data }` and `NopCompletion { user_data, res, flags }`
+  are the slots' `#[repr(C)]` zerocopy messages.
+  - Backpressure, nothing dropped: a request is released only once its SQE is published, a read
+    slot dropped otherwise re-delivering it, and a completion slot is reserved before its CQE is
+    popped, a write slot dropped otherwise abandoning it, so a full completion queue leaves CQEs
+    in the CQ.
+  - `in_flight` is kept at most the CQ's depth, so the kernel never holds more completions than
+    the CQ has room for, no CQ overflow possible.
+  - `step(true)` with something in flight waits in the kernel for one completion, so an idle
+    driver sleeps rather than spins.
+* The spsc is zc-ring-x1's default, v3, built from a `Pool` over a line-aligned `Vec`, `store`
+  sizing it, one segment per queue, in-process.
+  - zc-ring-x1 is `no_std`, its errors not `std::error::Error`, so the tests turn errors into their
+    `Debug` text and `main` names each queue's.
+  - It is a path dependency on the sibling checkout `../zc-ring-x1`, so a build takes whatever that
+    working copy holds, here its `main` at `e705b50d`, version `0.19.5`, and a clone without the
+    sibling does not build. Pinning it, a git dependency at a commit, is for when zc-ring-x1's API settles.
+* Two tests: NOPs cross both queues on one thread, six through a 4-entry ring, and a completion
+  queue of 2 holds CQEs back, 4 in flight and 2 completed, until the caller drains all 8. The
+  second assumes a NOP completes during its submit, which 200 runs bore out.
+* `main` runs the caller and the driver on two threads, the io_uring made on the driver's, its
+  pointers never crossing, the spsc endpoints `Send`. The caller's waits end if the driver stops,
+  so a refused setup reports and exits rather than hanging, and the output's order is fixed,
+  setup, completions, final state. It runs at one-entry rings, 100 runs.
+
 ##### feat: issue IORING_OP_NOP via io_uring primitives closing
 
 Closing out the cycle.
@@ -315,6 +342,15 @@ diff never touches the ladder. Proposed: a commit marks its own rung done and no
 It is vc-x1's code and the agent-files' wording (`AGENTS.md` per-rung flow step 7 and Cycle-record,
 `agent-data/notes.md` zTOC format), so it goes to vc-x1 as a message and an agent-files proposal
 when Wink says so.
+
+### build: pin zc-ring-x1 by git, not the sibling path
+
+`zc-ring-x1` is a path dependency on `../zc-ring-x1`, so a build takes whatever that working copy
+holds and a clone without the sibling does not build. Its `main@origin` is `e705b50d`, the commit
+the spsc rung was built on, so `git = "https://github.com/winksaville/zc-ring-x1.git"` with that
+`rev` works now, and a `tag` once zc-ring-x1 tags its versions. zc-ring-x1's side, tags and
+`core::error::Error` for its error types (`no_std` allows it since Rust 1.81, and `?` into `Box<dyn
+Error>` needs it), is its own to record, asked of it by message when Wink says so.
 
 ### refactor: read cargo metadata into typed structs
 
