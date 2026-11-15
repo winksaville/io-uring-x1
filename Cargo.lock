@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "io-uring-x1"
-version = "0.2.0-5"
+version = "0.2.0-6"
 dependencies = [
  "rustix",
 ]
@@ -392,6 +392,13 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "xtask-lib",
+]
+
+[[package]]
+name = "xtask-lib"
+version = "0.1.0"
+dependencies = [
  "serde_json",
  "toml_edit",
 ]

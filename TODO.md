@@ -177,9 +177,41 @@ and runs the one there is, refusing with the list when there is not exactly one.
 
 ##### refactor: make xtask a library
 
-The tasks live in `xtask/src/main.rs`, so another project cannot reuse them. Move them into
-`xtask/src/lib.rs` as modules, `main` keeping the arguments and the dispatch, the workspace root
-found at runtime rather than compiled in, and what is this project's own passed in, not built in.
+The tasks live in `xtask/src/main.rs`, so another project cannot reuse them. Move them into a
+package of their own, `xtask-lib`, as modules, xtask's `main` keeping the arguments and the
+dispatch, the workspace root found at runtime rather than compiled in, and what is this project's
+own passed in, not built in.
+
+* `xtask-lib` is its own workspace member, and `xtask` depends on it by path, so the boundary is
+  real: the binary reaches only what the library makes public.
+  - The library holds `toml_edit` and `serde_json`, and the binary only clap and the library.
+  - It has its own version, `0.1.0`, and `cargo xtask bump` sets the root package's alone, the
+    version-of-record.
+  - Named `xtask-lib`, not `xtask-x1`: `-x1` marks an experiment, dropped at 1.0, so the lasting
+    name is taken now, `-lib` telling it from each repo's `xtask` binary package.
+  - Moving it into its own repo, a path dependency becoming a git one, is the Todo `feat: share the
+    xtask library across repos`.
+* `xtask-lib/src/lib.rs` has a module per task, each with its tests beside it: `version` (the
+  version and its bump), `validate`, `run`, and `completions`, plus `cargo()` and `workspace_root()`.
+  - `xtask/src/main.rs` keeps clap's `Cli` and `Task`, the bump word candidates, the dispatch, and
+    the tests of argument parsing and completion, which need the `Cli`.
+  - Another project's xtask depends on the library and writes its own `main`, choosing its tasks.
+* The root is found at runtime by `cargo locate-project --workspace`, not compiled in from
+  `CARGO_MANIFEST_DIR`, which in a dependency would name the library's directory, not the workspace
+  using it. `cargo xtask version` from `src/` and `run` from `xtask/` both find this workspace.
+* What is a project's own is passed in: `validate` takes its commands and a label, `commands(fast)`
+  the default set, and `run` takes the package to leave out, `main` passing its own
+  `CARGO_PKG_NAME`.
+* The tests that read the real workspace stay generic, so they hold wherever the library goes: the
+  root holds a `[workspace]` manifest, and leaving out a package with binaries drops exactly its
+  binaries, whichever package that is.
+* `completions` needs no root, so a tab press runs no `cargo locate-project`.
+
+##### fix: pass run's arguments as cargo run does
+
+`cargo xtask run` takes the binary's arguments only after `--`, where `cargo run` passes the first
+plain argument and everything after it. Make `run` take them the same way, `--` needed only when
+the binary's first argument is a flag or one of `run`'s own.
 
 ##### feat: carry NOPs over zc-ring-x1 spsc queues
 
@@ -219,6 +251,14 @@ diff never touches the ladder. Proposed: a commit marks its own rung done and no
 It is vc-x1's code and the agent-files' wording (`AGENTS.md` per-rung flow step 7 and Cycle-record,
 `agent-data/notes.md` zTOC format), so it goes to vc-x1 as a message and an agent-files proposal
 when Wink says so.
+
+### refactor: read cargo metadata into typed structs
+
+`xtask-lib`'s `run` reads `cargo metadata` as a `serde_json::Value`, indexed by name, so a typo or a
+schema change reads as a silent `Null`, and `binaries` falls back with `unwrap_or(&empty)` twice.
+Deserialize into `Metadata`, `Package`, and `Target` structs with serde's derive, owned `String`s,
+so a missing field is a parse error and the fallbacks go. Clarity, not speed: the parse is
+microseconds beside the `cargo metadata` process.
 
 ### feat: share the xtask library across repos
 
