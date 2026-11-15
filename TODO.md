@@ -138,6 +138,36 @@ in the copy from vc-x1. Restore clap's text in the raw string, and test for the 
 A NOP round trip: an SQE written and published by the SQ tail, `io_uring_enter` to submit and wait,
 the CQE read and the CQ head advanced, each NOP's `user_data` coming back with `res` 0.
 
+* Each ring has one producer and one consumer, each owning one index: we own the SQ tail and the CQ
+  head, the kernel the SQ head and the CQ tail.
+  - Our own index is read `Relaxed`, since our last store is current, and the kernel's `Acquire`,
+    so the entry it covers is seen. Ours is stored `Release` after the entry is written or read,
+    so the kernel sees a whole SQE, and never reuses a CQE slot before we have copied it out.
+  - The indexes run free and wrap, a slot being the index masked, so a full SQ is `tail - head`
+    equal to the entry count, and the test runs three full rounds of a 4-entry ring to cross it.
+* `push` publishes an SQE, refusing with `SqFull` when no slot is free, `submit(want)` hands the
+  published SQEs to `io_uring_enter` and waits for `want` completions, and `pop` copies the oldest
+  CQE out as a `Completion` before advancing the head.
+  - `unsubmitted` counts what is published and not yet entered, since the kernel may consume fewer
+    than it is offered, and `submit` returns what it took.
+  - `nop(user_data)` builds the SQE, every field zeroed but the opcode and the `user_data`.
+* The index loads go through one `unsafe fn load`, each caller vouching for its pointer, since a
+  safe function dereferencing any pointer it is handed would be unsound.
+* `main` sends four NOPs through an 8-entry ring and prints each completion and the indexes, all four
+  meeting at 4.
+
+##### feat: run the one binary by cargo xtask
+
+`cargo run` in this workspace sees two binaries, the project's and xtask's, and asks for `--bin`.
+`cargo xtask run [-- ARGS]` finds the workspace's binaries by `cargo metadata`, xtask's left out,
+and runs the one there is, refusing with the list when there is not exactly one.
+
+##### refactor: make xtask a library
+
+The tasks live in `xtask/src/main.rs`, so another project cannot reuse them. Move them into
+`xtask/src/lib.rs` as modules, `main` keeping the arguments and the dispatch, the workspace root
+found at runtime rather than compiled in, and what is this project's own passed in, not built in.
+
 ##### feat: carry NOPs over zc-ring-x1 spsc queues
 
 Two spsc queues in front of the ring: a request queue whose entries become SQEs, and a completion
@@ -164,6 +194,11 @@ Entries are in priority order, the first highest, and reprioritizing is moving a
 `[build]`, `[install]`, and `[profile.*]` in `.vc-config.md` are the project's knowledge in vc-x1's
 config, as `[validate]` was before `cargo xtask validate`. Move them into xtask, `cargo xtask install
 --profile dev` for one, with a `custom.md` override where the agent-files name `vc-x1 install`.
+
+### feat: share the xtask library across repos
+
+This cycle makes xtask a library within this workspace. Moving it into its own repo, a git or path
+dependency, lets vc-x1, whose xtask this one was modelled on, and other projects use one copy.
 
 ## Ideas
 
