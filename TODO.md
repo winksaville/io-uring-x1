@@ -78,6 +78,20 @@ A ring that can be set up and torn down: rustix as a dependency, `io_uring_setup
 SQE array mapped, and the kernel's offsets resolved into the head, tail, mask, and array pointers,
 unmapped on drop.
 
+* The ring lives in a library, `src/ring.rs` under `src/lib.rs`, with `main` a client of it.
+  - The later rungs and their tests reach the ring as `io_uring_x1::ring`, and a public item is
+    never dead code while its users are still to come.
+* `Ring::new` sets up, checks `IORING_FEAT_SINGLE_MMAP`, and maps twice.
+  - The rings' mapping is sized for the larger of the SQ, ending at its index array, and the CQ,
+    ending at its CQE array, and the SQE array is its own mapping at `IORING_OFF_SQES`.
+  - The heads and tails are held as `*const AtomicU32` into the mapping, since the kernel writes
+    them concurrently, and the masks and entry counts are read once, since they never change.
+  - The SQ index array is filled once with slot i naming SQE i, so the next rung publishes an SQE
+    by its slot and never writes the array again.
+* `Ring::state` reads the indexes and sizes, the test's view and `main`'s output.
+  - The tests check the kernel's sizes, 8 SQEs and 16 CQEs, and that 5 entries round up to 8.
+* `Drop` unmaps both mappings before the fd closes, a failed `munmap` ignored as a leak at worst.
+
 ##### feat: submit IORING_OP_NOP and reap its CQE
 
 A NOP round trip: an SQE written and published by the SQ tail, `io_uring_enter` to submit and wait,

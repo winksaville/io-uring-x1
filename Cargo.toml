@@ -1,6 +1,6 @@
 [package]
 name = "io-uring-x1"
-version = "0.2.0-0"
+version = "0.2.0-1"
 edition = "2024"
 
 # The workspace: `io-uring-x1` itself and `xtask`, the project's own
@@ -11,3 +11,4 @@ members = [".", "xtask"]
 default-members = [".", "xtask"]
 
 [dependencies]
+rustix = { version = "1.1.6", features = ["io_uring", "mm"] }
