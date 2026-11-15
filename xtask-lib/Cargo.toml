@@ -1,0 +1,19 @@
+[package]
+name = "xtask-lib"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The tasks behind `cargo xtask`, as a library a project's `xtask`
+# binary depends on and dispatches to, so the tasks are written once
+# and reused. Its own version, not the workspace's version-of-record,
+# which `cargo xtask bump` sets on the root package alone.
+
+[dependencies]
+# `cargo metadata`'s JSON, which `run` reads for the workspace's
+# binaries.
+serde_json = "1"
+# The crate cargo's own `cargo add` edits a manifest with: it keeps
+# the comments, the layout, and the key order, and changes the one
+# value.
+toml_edit = "0.25"

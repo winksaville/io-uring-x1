@@ -1,13 +1,17 @@
 [package]
 name = "io-uring-x1"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
-# The workspace: `io-uring-x1` itself and `xtask`, the project's own
-# tasks (`cargo xtask bump next`), both built, tested, and linted by
-# default.
+# The workspace: `io-uring-x1` itself, `xtask`, the project's own
+# tasks (`cargo xtask bump next`), and `xtask-lib`, the library they
+# are written in, all built, tested, and linted by default.
 [workspace]
-members = [".", "xtask"]
-default-members = [".", "xtask"]
+members = [".", "xtask", "xtask-lib"]
+default-members = [".", "xtask", "xtask-lib"]
 
 [dependencies]
+clap = { version = "4.6", features = ["derive"] }
+rustix = { version = "1.1.6", features = ["io_uring", "mm"] }
+zc-ring-x1 = { version = "0.19.5", path = "../zc-ring-x1" }
+zerocopy = { version = "0.8", features = ["derive"] }
