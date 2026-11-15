@@ -12,7 +12,8 @@ The workspace's index, in [zTOC format](agent-data/notes.md#ztoc-format).
 - 5 (done) [feat: run the one binary by cargo xtask](TODO.md#feat-run-the-one-binary-by-cargo-xtask)
 - 6 (done) [refactor: make xtask a library](TODO.md#refactor-make-xtask-a-library)
 - 7 (done) [fix: pass run's arguments as cargo run does](TODO.md#fix-pass-runs-arguments-as-cargo-run-does)
-- 8 (current) [feat: choose the ring's queue depths](TODO.md#feat-choose-the-rings-queue-depths)
+- 8 (done) [feat: choose the ring's queue depths](TODO.md#feat-choose-the-rings-queue-depths)
+- 9 (current) [fix: hand run's -h to the binary](TODO.md#fix-hand-runs--h-to-the-binary)
 - [feat: carry NOPs over zc-ring-x1 spsc queues](TODO.md#feat-carry-nops-over-zc-ring-x1-spsc-queues)
 - [feat: issue IORING_OP_NOP via io_uring primitives closing](TODO.md#feat-issue-ioring_op_nop-via-io_uring-primitives-closing)
 

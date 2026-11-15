@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use rustix::io_uring::{
     IORING_OFF_SQ_RING, IORING_OFF_SQES, IoringEnterFlags, IoringFeatureFlags, IoringOp,
-    io_uring_cqe, io_uring_enter, io_uring_params, io_uring_setup, io_uring_sqe,
+    IoringSetupFlags, io_uring_cqe, io_uring_enter, io_uring_params, io_uring_setup, io_uring_sqe,
     io_uring_user_data,
 };
 use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
@@ -105,6 +105,30 @@ pub fn nop(user_data: u64) -> io_uring_sqe {
     }
 }
 
+/// The queue depths a ring is set up with, each rounded up to a power of two by the kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Depths {
+    /// The SQ's entries.
+    pub sq: u32,
+    /// The CQ's entries, `None` for the kernel's default of twice the SQ's. Given, it is asked
+    /// for by `IORING_SETUP_CQSIZE`, and the kernel refuses one smaller than the SQ's.
+    pub cq: Option<u32>,
+}
+
+impl Depths {
+    /// The SQ's depth this crate sets up by default.
+    pub const DEFAULT_SQ: u32 = 8;
+}
+
+impl Default for Depths {
+    fn default() -> Self {
+        Self {
+            sq: Self::DEFAULT_SQ,
+            cq: None,
+        }
+    }
+}
+
 /// An io_uring instance: its fd, its two mappings, and the pointers into them.
 pub struct Ring {
     // The pointers point into `rings` and `sqes`, which are unmapped by `Drop` before `fd`
@@ -131,9 +155,21 @@ impl Ring {
     /// Set up a ring of at least `entries` SQEs, the kernel rounding up to a power of two and
     /// giving the CQ twice as many.
     pub fn new(entries: u32) -> io::Result<Self> {
+        Self::with_depths(Depths {
+            sq: entries,
+            cq: None,
+        })
+    }
+
+    /// Set up a ring of the depths given, the CQ's by `IORING_SETUP_CQSIZE` when it is named.
+    pub fn with_depths(depths: Depths) -> io::Result<Self> {
         let mut p = io_uring_params::default();
-        // SAFETY: `p` is zeroed, no flags asking for anything beyond the plain ring.
-        let fd = unsafe { io_uring_setup(entries, &mut p) }?;
+        if let Some(cq) = depths.cq {
+            p.flags = IoringSetupFlags::CQSIZE;
+            p.cq_entries = cq;
+        }
+        // SAFETY: `p` is zeroed but for the CQ's size, asking nothing beyond the plain ring.
+        let fd = unsafe { io_uring_setup(depths.sq, &mut p) }?;
 
         if !p.features.contains(IoringFeatureFlags::SINGLE_MMAP) {
             return Err(io::Error::new(
@@ -319,6 +355,32 @@ mod tests {
         let s = Ring::new(5)?.state();
         assert_eq!((s.sq_entries, s.cq_entries), (8, 16));
         Ok(())
+    }
+
+    /// The CQ's depth is the one asked for, rounded up as the SQ's is, and the default leaves
+    /// it at twice the SQ's.
+    #[test]
+    fn the_cq_depth_is_the_one_asked_for() -> io::Result<()> {
+        let depths = |sq, cq| -> io::Result<(u32, u32)> {
+            let s = Ring::with_depths(Depths { sq, cq })?.state();
+            Ok((s.sq_entries, s.cq_entries))
+        };
+        assert_eq!(depths(4, Some(32))?, (4, 32));
+        assert_eq!(depths(4, Some(5))?, (4, 8));
+        assert_eq!(depths(4, Some(4))?, (4, 4));
+        assert_eq!(depths(4, None)?, (4, 8));
+        let d = Ring::with_depths(Depths::default())?.state();
+        assert_eq!((d.sq_entries, d.cq_entries), (8, 16));
+        Ok(())
+    }
+
+    /// The kernel refuses a CQ smaller than the SQ, and a zero depth either way.
+    #[test]
+    fn the_kernel_refuses_impossible_depths() {
+        let refused = |sq, cq| Ring::with_depths(Depths { sq, cq }).err().map(|e| e.kind());
+        assert_eq!(refused(8, Some(4)), Some(io::ErrorKind::InvalidInput));
+        assert_eq!(refused(8, Some(0)), Some(io::ErrorKind::InvalidInput));
+        assert_eq!(refused(0, None), Some(io::ErrorKind::InvalidInput));
     }
 
     /// Each NOP comes back once, with its own `user_data` and `res` 0, and the indexes all

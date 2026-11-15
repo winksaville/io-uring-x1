@@ -241,6 +241,30 @@ The ring's depths are fixed, 8 SQEs and the kernel's default of twice as many CQ
 optional: an SQ depth, and a CQ depth by `IORING_SETUP_CQSIZE`, on `Ring` and as the binary's
 `--sq-entries` and `--cq-entries`, its first CLI, so `cx run -- ...` has something to pass.
 
+* `Depths { sq, cq: Option<u32> }` names the depths, its default 8 and the kernel's twice-the-SQ,
+  and `Ring::with_depths` sets them up, `Ring::new(entries)` staying as the SQ-only shorthand.
+  - A named CQ is asked for by `IORING_SETUP_CQSIZE` with `cq_entries`, the kernel rounding it up
+    to a power of two as it does the SQ's.
+  - Tests pin the kernel's answers: a CQ of 32 over an SQ of 4, 5 rounded to 8, a CQ equal to
+    the SQ, and the refusals, a CQ smaller than the SQ and a zero depth either way, each
+    `EINVAL`.
+* The binary has a clap CLI, `--sq-entries N` (default 8) and `--cq-entries N`, and a test of its
+  parsing.
+  - Its `-V` is clap's `version`, since `vc-x1 install` runs `-V` to read the version it installs,
+    and a CLI without it refused the flag and failed the install.
+  - The round trip sends its four NOPs in batches the SQ holds, submitting and reaping each, so an
+    SQ smaller than four works, `--sq-entries 2` taking two batches.
+  - The kernel's refusal is a bare `EINVAL`, so `main` names the depths it refused and the rule
+    beside it.
+* `cx run -- --sq-entries 2 --cq-entries 16` passes them through, and completion offers nothing
+  after the binary's first flag, the binary still having no completion of its own.
+
+##### fix: hand run's -h to the binary
+
+`cx run -h` shows `run`'s help, where the app's is wanted, reached today only by `cx run -- -h`.
+Turn off `run`'s own help flag so `-h` and `--help` go to the binary, `run`'s help moving to `cx help
+run`, and completion treating them as the binary's.
+
 ##### feat: carry NOPs over zc-ring-x1 spsc queues
 
 Two spsc queues in front of the ring: a request queue whose entries become SQEs, and a completion
